@@ -39,7 +39,7 @@ exporters do nothing, and export request debounce is turned off."
          (phony--debounce-export-requests nil)
          (phony-mode-was-enabled phony-mode)
          (phony-interactive-mode-was-enabled phony-interactive-mode)
-         (phony-parser--literal-normalizer #'identity))
+         (phony-literal-normalizer #'identity))
      (unwind-protect
          (progn
            (phony-mode -1)
@@ -974,10 +974,26 @@ If there is no parse, an error is thrown."
    (should-error (phony-test--evaluate "z w"))
    (should-error (phony-test--evaluate "w z"))))
 
-(ert-deftest phony-parser-literal-normalizer ()
-  "`phony-experimental-set-parser-literal-normalizer' works as advertised."
+(ert-deftest phony-literal-normalizer-binding ()
+  "Binding `phony-literal-normalizer' normalizes literals and dictionaries."
   (phony-test
-    (phony-experimental-set-parser-literal-normalizer #'length)
+    (phony-define-dictionary animal
+      '(("cat" . cat) ("Big Dog" . dog)))
+    (phony-defun pet ("Pet the" animal)
+      animal)
+    (phony--export-all)
+    (should-error (phony-test--evaluate "pet the CAT"))
+    (should (eq (phony-test--evaluate "Pet the Big Dog") 'dog))
+    (let ((phony-literal-normalizer #'downcase))
+      (should (eq (phony-test--evaluate "pet the CAT") 'cat))
+      (should (eq (phony-test--evaluate "PET THE big dog") 'dog)))
+    (should-error (phony-test--evaluate "pet the big dog"))
+    (should (eq (phony-test--evaluate "Pet the Big Dog") 'dog))))
+
+(ert-deftest phony-parser-literal-normalizer ()
+  "`phony-literal-normalizer' works as advertised."
+  (phony-test
+    (setq phony-literal-normalizer #'length)
     (phony-defun x ("1234" (? "12") "123")
       42)
     (phony--export-all)

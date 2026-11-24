@@ -265,7 +265,8 @@ This includes `completion-at-point', `xref', and font-locking."
 
 Literals are compared with tokens by first normalizing both with
 NORMALIZER."
-  (setq phony-parser--literal-normalizer normalizer))
+  (declare (obsolete phony-literal-normalizer "4.1.0"))
+  (setq phony-literal-normalizer normalizer))
 
 (define-obsolete-function-alias
   'phony-experimental-evaluate

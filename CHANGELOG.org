@@ -1,3 +1,9 @@
+* Unreleased
+- The literal normalizer is no longer experimental.  It is now the
+  user option ~phony-literal-normalizer~, which can also be bound
+  around a parse.  Dictionaries now follow a change of the normalizer.
+  ~phony-experimental-set-parser-literal-normalizer~ is obsolete.
+
 * 4.0.0 [2026-11-23 Mon]
 - The ~:interactive~ parameter of ~phony-defun~ can now take a mode or
   a list of modes.  The rule will be interactive only if one of those

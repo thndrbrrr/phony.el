@@ -38,8 +38,8 @@ With such a function defined, uttering "hello emacs" will display
   - [[#modules][Modules]]
   - [[#interface-rules][Interface rules]]
 - [[#evaluating-utterances][Evaluating utterances]]
-- [[#experimental-features][Experimental features]]
   - [[#customizing-literal-and-token-normalization][Customizing literal and token normalization]]
+- [[#experimental-features][Experimental features]]
 - [[#pre-defined-rulesets][Pre-defined rulesets]]
 - [[#versioning-system][Versioning system]]
 :END:
@@ -274,30 +274,32 @@ If the utterance comes from live speech recognition, use
 ~phony-evaluate-as-event~ instead.  That will ensure that undo history
 and keyboard macros work the same way they do as for other input.
 
-* Experimental features
-:PROPERTIES:
-:CUSTOM_ID: experimental-features
-:END:
-Experimental features are enabled by requiring ~phony-experimental~.
-
 ** Customizing literal and token normalization
 :PROPERTIES:
 :CUSTOM_ID: customizing-literal-and-token-normalization
 :END:
 
-You can use ~phony-experimental-set-parser-literal-normalizer~ to set
-the function that normalizes literals and parse tokens before
-comparison.  For example, the following code makes ~phony-evaluate~
-ignore casing and punctuation when parsing:
+The variable ~phony-literal-normalizer~ holds the function that
+normalizes literals and the words of an utterance before they are
+compared.  For example, the following code makes parsing ignore casing
+and punctuation:
 
 #+begin_src emacs-lisp
   (defun my/sanitize-literal (s)
     "Lowercase and remove punctuation in S."
     (replace-regexp-in-string "[-,\\.!?:]" "" (downcase s)))
 
-  (phony-experimental-set-parser-literal-normalizer
-   #'my/sanitize-literal)
+  (setopt phony-literal-normalizer #'my/sanitize-literal)
 #+end_src
+
+Bind the variable around a call to a parsing function to normalize
+only that parse.
+
+* Experimental features
+:PROPERTIES:
+:CUSTOM_ID: experimental-features
+:END:
+Experimental features are enabled by requiring ~phony-experimental~.
 
 * Pre-defined rulesets
 :PROPERTIES:

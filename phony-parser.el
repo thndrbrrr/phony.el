@@ -216,26 +216,34 @@ are run on subsequent tokens and their results collected."
        (lambda ()
          (seq-mapcat #'phony-parser--wants parsers)))))))
 
-(defvar phony-parser--literal-normalizer #'identity
-  "Function for normalizing tokens and literals.
+(defcustom phony-literal-normalizer #'identity
+  "Function normalizing words before they are compared with literals.
 
-Comparison is done on the normalized strings.")
+When parsing, a word of an utterance matches a literal of a rule or a
+dictionary if both are `equal' after being passed through this
+function.  For example, `downcase' makes parsing ignore case, which
+helps when utterances come from a transcription with capitals.
+
+Bind this variable around a parse to normalize only that parse.
+Changing it takes effect on the next parse."
+  :type 'function
+  :group 'phony)
 
 (defun phony-parser--accept (item)
   "Return a parser that only accepts ITEM.
 
 The parser normalizes ITEM and token input with
-`phony-parser--literal-normalizer' before comparing."
+`phony-literal-normalizer' before comparing."
   (phony-parser--make
    :parses-function (lambda () nil)
    :step-function
    (lambda (token)
-     (if (equal (funcall phony-parser--literal-normalizer token)
-                (funcall phony-parser--literal-normalizer item))
+     (if (equal (funcall phony-literal-normalizer token)
+                (funcall phony-literal-normalizer item))
          (phony-parser--return token)
        (phony-parser--empty)))
    :wants-function
-   (lambda () (list (funcall phony-parser--literal-normalizer item)))))
+   (lambda () (list (funcall phony-literal-normalizer item)))))
 
 (defun phony-parser--then (parser1 parser2)
   "Return a parser that sequences PARSER1 then PARSER2, keeping PARSER2 results."
@@ -278,16 +286,17 @@ no arguments to yield the actual parser to use."
   "Return a parser behaving like PARSER-FACTORY invoked at runtime.
 
 The results are cached.  The cache is invalidated whenever the return
-value of GENERATION-FUNCTION changes.
+value of GENERATION-FUNCTION changes, as compared by `equal'.
 
 PARSER-FACTORY is invoked with no arguments to yield the parser to use."
-  (let ((generation (cons nil nil)) ; Fresh cons is never eql to value
-                                    ; of GENERATION-FUNCTION.
+  (let ((generation (list 'phony-parser--never)) ; Never `equal' to a
+                                                 ; value of
+                                                 ; GENERATION-FUNCTION.
         (parser nil))
     (phony-parser--runtime-resolved
      (lambda ()
        (let ((current-generation (funcall generation-function)))
-         (unless (eql current-generation generation)
+         (unless (equal current-generation generation)
            (setq parser (funcall parser-factory))
            (setq generation current-generation)))
        parser))))
@@ -303,8 +312,7 @@ STRING is split up into words.  The returned parser reads that many
 tokens before accepting, if the tokens correspond to the words.
 The result of a parse is STRING.
 
-Uses `phony-parser--literal-normalizer' to normalize tokens and
-literals."
+Uses `phony-literal-normalizer' to normalize tokens and literals."
   (let ((words (string-split string)))
     (apply
      #'phony-parser--lift
@@ -581,7 +589,7 @@ length of ENTRIES."
        (mapcar (lambda (v) (cons v 0)) values))
      :step-function
      (lambda (item)
-       (gethash (funcall phony-parser--literal-normalizer item)
+       (gethash (funcall phony-literal-normalizer item)
                 child-parsers
                 (phony-parser--empty)))
      :wants-function
@@ -591,7 +599,7 @@ length of ENTRIES."
   "Return parser unconditionally matching an entry of DICTIONARY."
   (phony-parser--trie-parser
    (mapcar (pcase-lambda (`(,utterance . _))
-             (cons (seq-map phony-parser--literal-normalizer
+             (cons (seq-map phony-literal-normalizer
                             (string-split utterance))
                    utterance))
            (phony--dictionary-mapping dictionary))))
@@ -604,7 +612,10 @@ length of ENTRIES."
     (lambda (utterance) `(,(phony--dictionary-name rule) ,utterance))
     (phony-parser--runtime-resolved-cached
      (lambda () (phony-parser--make-dictionary-parser rule))
-     (lambda () (phony--dictionary-generation rule))))))
+     ;; The parser holds normalized utterances, so it is rebuilt for
+     ;; another normalizer too.
+     (lambda () (cons (phony--dictionary-generation rule)
+                      phony-literal-normalizer))))))
 
 (cl-defmethod phony-parser--parser ((rule phony--open-rule))
   "Return a parser matching any alternative of open RULE."
