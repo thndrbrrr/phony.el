@@ -39,6 +39,7 @@ With such a function defined, uttering "hello emacs" will display
   - [[#interface-rules][Interface rules]]
 - [[#evaluating-utterances][Evaluating utterances]]
   - [[#customizing-literal-and-token-normalization][Customizing literal and token normalization]]
+  - [[#parsing-utterances][Parsing utterances]]
 - [[#experimental-features][Experimental features]]
 - [[#pre-defined-rulesets][Pre-defined rulesets]]
 - [[#versioning-system][Versioning system]]
@@ -308,6 +309,18 @@ and punctuation:
 
 Bind the variable around a call to a parsing function to normalize
 only that parse.
+
+** Parsing utterances
+:PROPERTIES:
+:CUSTOM_ID: parsing-utterances
+:END:
+
+Utterances that don't come from a speech recognition engine, such as
+transcribed text, can be parsed and evaluated by your own code, without
+~phony-mode~:
+
+- ~phony-grammar~ returns the grammar of the rules defined so far.  It
+  is prepared again whenever a rule changes.
 
 * Experimental features
 :PROPERTIES:

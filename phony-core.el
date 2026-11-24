@@ -130,7 +130,8 @@ See `phony-define-interface' for information on interfaces and
 providers."
   `(progn
      (puthash ',interface-module ',provider-module
-              (phony--grammar-module-provision phony--default-grammar))))
+              (phony--grammar-module-provision phony--default-grammar))
+     (phony--grammar-changed)))
 
 (defun phony--provides-from-p (interface-module provider-module grammar)
   "Return non-nil if PROVIDER-MODULE resolves INTERFACE-MODULE in GRAMMAR."
@@ -167,6 +168,7 @@ default for all rules defined in FILE."
               :file-name file
               :enabled-p enabled)
              (phony--grammar-modules phony--default-grammar))
+    (phony--grammar-changed)
     (when utterance
       (phony-dictionary-put utterance 'phony-module name))
     name))
@@ -256,6 +258,7 @@ non-interactive and don't contribute to open rules."
   (setf (phony--module-enabled-p (phony--get-module name phony--default-grammar)) t)
   (when persist
     (cl-pushnew name (multisession-value phony--enabled-modules)))
+  (phony--grammar-changed)
   (phony-request-export)
   (message "Enabled %s module" name))
 
@@ -282,6 +285,7 @@ contribute to open rules."
   (when persist
     (setf (multisession-value phony--enabled-modules)
           (delq name (multisession-value phony--enabled-modules))))
+  (phony--grammar-changed)
   (phony-request-export)
   (message "Disabled %s module" name))
 
@@ -649,7 +653,8 @@ This function must be invoked every time a rule is declared."
   (setf (phony--rule-file-name rule) (phony--current-file-name))
   (puthash (phony--rule-name rule)
            rule
-           (phony--grammar-rules grammar)))
+           (phony--grammar-rules grammar))
+  (phony--grammar-changed grammar))
 
 (defun phony-remove-rule (rule-name)
   "Remove rule named RULE-NAME."
@@ -668,6 +673,7 @@ This function must be invoked every time a rule is declared."
                           (eq (phony--rule-reference-name reference)
                               rule-name))
                         (phony--open-rule-alternatives open-rule))))
+    (phony--grammar-changed grammar)
     (phony-request-export)))
 
 (defun phony--add-new-rule (constructor parameters)
@@ -1253,6 +1259,60 @@ been initialized on it."
     (phony-ag--initialize grammar)
     grammar))
 
+(defvar phony--finalized-grammars (make-hash-table :test 'eq :weakness 'key)
+  "Hash table caching the finalized versions of grammars.
+
+The keys are grammars as defined, such as `phony--default-grammar', and
+the values conses (LATEST . VALID).  LATEST is the grammar finalized,
+or nil if it has changed since.  VALID is the most recent finalized
+grammar without errors, or nil if there is none.")
+
+(defun phony--grammar-changed (&optional grammar)
+  "Note that GRAMMAR has changed, so that it is finalized again.
+
+GRAMMAR defaults to `phony--default-grammar'.  Call this whenever its
+rules, modules or interface providers change."
+  (when-let* ((entry (gethash (or grammar phony--default-grammar)
+                              phony--finalized-grammars)))
+    (setcar entry nil)))
+
+(defun phony--finalized-grammar-entry ()
+  "Return the entry of `phony--default-grammar' in `phony--finalized-grammars'.
+
+The grammar is finalized first if it has changed, and its diagnostics
+are displayed."
+  (let ((entry (or (gethash phony--default-grammar phony--finalized-grammars)
+                   (puthash phony--default-grammar (cons nil nil)
+                            phony--finalized-grammars))))
+    (unless (car entry)
+      (let* ((grammar (phony--finalize-grammar))
+             (diagnostics (phony--grammar-diagnostics grammar)))
+        (dolist (diagnostic diagnostics)
+          (display-warning 'phony (phony--diagnostic-message diagnostic)))
+        (setcar entry grammar)
+        (unless diagnostics
+          (setcdr entry grammar))))
+    entry))
+
+(defun phony-grammar ()
+  "Return the grammar of the rules currently defined, ready for parsing.
+
+The grammar is prepared again the first time it is asked for after a
+rule, module or interface provider has changed.  This works without
+`phony-mode' or a recognition engine, so the grammar can be used with
+`phony-parse' and the other parsing functions on utterances that come
+from elsewhere.
+
+If the rules have errors, they are displayed as warnings, and the most
+recent grammar without errors is returned instead, or an empty grammar
+if there is none.
+
+The grammar must not be modified."
+  (or (cdr (phony--finalized-grammar-entry))
+      (let ((grammar (phony--make-grammar)))
+        (phony-ag--initialize grammar)
+        grammar)))
+
 (declare-function phony-talon-export "phony-talon")
 
 (defvar phony--warned-about-deprecated-backend nil
@@ -1265,13 +1325,11 @@ If any errors are detected in the grammar, the rules are not exported.
 
 If no rules are defined, this function does nothing."
   (when (phony--get-rules phony--default-grammar)
-    (let* ((grammar (phony--finalize-grammar)))
-      (if-let* ((diagnostics (phony--grammar-diagnostics grammar)))
-          (progn (dolist (diagnostic diagnostics)
-                   (display-warning
-                    'phony (phony--diagnostic-message diagnostic)))
-                 (display-warning
-                  'phony "Grammar contains errors, not exporting"))
+    (let* ((grammar (car (phony--finalized-grammar-entry))))
+      (if (phony--grammar-diagnostics grammar)
+          ;; The diagnostics were displayed when the grammar was
+          ;; finalized.
+          (display-warning 'phony "Grammar contains errors, not exporting")
         (cancel-function-timers #'phony--sync-state)
         (run-with-idle-timer 0.1 t #'phony--sync-state)
         (cond

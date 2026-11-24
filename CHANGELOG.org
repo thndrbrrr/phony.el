@@ -7,6 +7,10 @@
   rules, as long as they match a word before doing so.  Rules that
   would refer to themselves before matching a word are reported as an
   error.
+- New function ~phony-grammar~, which returns the grammar of the rules
+  currently defined, prepared for parsing.  It doesn't need
+  ~phony-mode~ or a recognition engine, and is prepared again when a
+  rule, module or interface provider changes.
 
 * 4.0.0 [2026-11-23 Mon]
 - The ~:interactive~ parameter of ~phony-defun~ can now take a mode or

@@ -1108,4 +1108,73 @@ If there is no parse, an error is thrown."
   (should (equal (phony-stdlib--parse-number '(1 100 20 3 1000 4 100 50 6)) 123456))
   (should (equal (phony-stdlib--parse-number '(1 20 3 1000 4 50 6)) 123456)))
 
+;;;; Parsing without a recognition engine
+
+(defmacro phony-test-collecting-warnings (variable &rest body)
+  "Evaluate BODY with the messages of warnings collected in VARIABLE."
+  (declare (indent 1))
+  `(let ((,variable '()))
+     (cl-letf (((symbol-function 'display-warning)
+                (lambda (_type message &rest _)
+                  (push message ,variable))))
+       ,@body)))
+
+(defun phony-test--parses-p (utterance)
+  "Return non-nil if UTTERANCE parses with `phony-grammar'."
+  (phony-parser--parse-utterance utterance (phony-grammar)))
+
+(ert-deftest phony-grammar-without-phony-mode ()
+  "`phony-grammar' is up to date without `phony-mode'."
+  (phony-test
+    (phony-defun hello "hello"
+      'hello)
+    (should (phony-test--parses-p "hello"))
+    (should-not (phony-test--parses-p "goodbye"))
+    (let ((grammar (phony-grammar)))
+      (should (eq grammar (phony-grammar)))
+      (phony-defun goodbye "goodbye"
+        'goodbye)
+      (should-not (eq grammar (phony-grammar))))
+    (should (phony-test--parses-p "goodbye"))
+    (phony-remove-rule 'goodbye)
+    (should-not (phony-test--parses-p "goodbye"))))
+
+(ert-deftest phony-grammar-tracks-modules ()
+  "`phony-grammar' is prepared again when a module is enabled or disabled."
+  (phony-test
+    (cl-letf (((symbol-function 'message) #'ignore))
+      (phony-define-module some-module)
+      (phony-defun module-rule "module rule"
+        :module some-module
+        t)
+      (should-not (phony-test--parses-p "module rule"))
+      (phony-enable-module 'some-module)
+      (should (phony-test--parses-p "module rule"))
+      (phony-disable-module 'some-module)
+      (should-not (phony-test--parses-p "module rule")))))
+
+(ert-deftest phony-grammar-with-errors ()
+  "`phony-grammar' warns about errors and keeps the last grammar without."
+  (phony-test
+    (phony-test-collecting-warnings warnings
+      (phony-defun broken ("broken" undefined-rule)
+        undefined-rule)
+      (should (phony-grammar))
+      (should-not (phony-test--parses-p "broken"))
+      (should (seq-some (lambda (warning) (string-search "undefined-rule" warning))
+                        warnings))
+      (phony-remove-rule 'broken)
+      (phony-defun fine "fine"
+        t)
+      (should (phony-test--parses-p "fine"))
+      (setq warnings '())
+      (phony-defun broken ("broken" undefined-rule)
+        undefined-rule)
+      (should (phony-test--parses-p "fine"))
+      (should-not (phony-test--parses-p "broken"))
+      (should (= (length warnings) 1))
+      ;; Warnings aren't repeated while nothing changes
+      (phony-grammar)
+      (should (= (length warnings) 1)))))
+
 ;;; test.el ends here
