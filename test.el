@@ -1177,4 +1177,65 @@ If there is no parse, an error is thrown."
       (phony-grammar)
       (should (= (length warnings) 1)))))
 
+(ert-deftest phony-parse-all-parses ()
+  "`phony-parse' returns every parse, the fewest free-text words first."
+  (phony-test
+    (phony-defun say ("say" (words phony--builtin-phrase))
+      words)
+    (phony-defun stop "stop"
+      'stop)
+    (should (equal (phony-parse "say hello stop")
+                   '(((say "hello") (stop))
+                     ((say "hello stop")))))
+    (should (equal (phony-parse '("stop" "stop"))
+                   '(((stop) (stop)))))
+    (should (equal (mapcar (lambda (parse)
+                             (mapcar #'phony-evaluate-ast parse))
+                           (phony-parse "say hello stop"))
+                   '(("hello" stop) ("hello stop"))))))
+
+(ert-deftest phony-parse-rule ()
+  "`phony-parse-rule' parses any rule."
+  (phony-test
+    (phony-define-dictionary colors
+      '(("red" . red) ("dark red" . dark-red)))
+    (phony-defun shade ((? "very") colors)
+      :interactive nil
+      colors)
+    (should (equal (mapcar #'phony-evaluate-ast (phony-parse-rule 'shade "very dark red"))
+                   '(dark-red)))
+    (should (equal (mapcar #'phony-evaluate-ast (phony-parse-rule 'colors "red"))
+                   '(red)))
+    (should-not (phony-parse-rule 'shade "blue"))
+    (should-error (phony-parse-rule 'undefined "red"))))
+
+(ert-deftest phony-parse-spans ()
+  "`phony-parse-spans' returns each command at each position."
+  (phony-test
+    (phony-defun say ("say" (words phony--builtin-phrase))
+      words)
+    (phony-defun stop "stop"
+      'stop)
+    (phony-defun first "first"
+      :anchor-beginning t
+      'first)
+    (phony-defun last "last"
+      :anchor-end t
+      'last)
+    (should (equal (phony-parse-spans "say hello stop")
+                   [((2 (say "hello") 1) (3 (say "hello stop") 2))
+                    ()
+                    ((3 (stop) 0))]))
+    (should (equal (phony-parse-spans "first first last last")
+                   [((1 (first) 0)) () () ((4 (last) 0))]))
+    (should (equal (phony-parse-spans '()) []))))
+
+(ert-deftest phony-parse-spans-removes-duplicates ()
+  "`phony-parse-spans' returns each parse once."
+  (phony-test
+    (phony-defun greet ((? "hello") (? "hello") "there")
+      t)
+    (should (equal (phony-parse-spans "hello there")
+                   [((2 (greet) 0)) ((2 (greet) 0))]))))
+
 ;;; test.el ends here

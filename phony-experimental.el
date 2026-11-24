@@ -59,7 +59,7 @@ parameter."
    (seq-contains-p (phony--function-calls-at position)
                    '(phony-defun 2))
    (seq-contains-p (phony--function-calls-at position)
-                   '(phony--evaluate-ast 1))))
+                   '(phony-evaluate-ast 1))))
 
 (defun phony--completion-at-point ()
   "Completion function for phony.

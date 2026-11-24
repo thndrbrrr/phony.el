@@ -55,7 +55,7 @@ representing the recognized utterance."
 
 (simulacrum-define-command phony--evaluate-ast-command (ast)
   "Evaluate AST."
-  (phony--evaluate-ast ast))
+  (phony-evaluate-ast ast phony--exported-grammar))
 
 ;;;###autoload
 (define-minor-mode phony-mode
@@ -1650,28 +1650,96 @@ dictionary."
       (insert (mapconcat #'phony--rule-external-name active-rules "\n")
               "\n"))))
 
-(defun phony--evaluate-ast (ast)
-  "Evaluate AST constructed from an utterance.
+(defun phony-evaluate-ast (ast &optional grammar)
+  "Return the value of AST, a parse of a rule of GRAMMAR.
 
-Evaluation is done with reference to `phony--exported-grammar'."
+GRAMMAR defaults to the one `phony-grammar' returns.  AST is as
+returned by `phony-parse', `phony-parse-rule' or `phony-parse-spans'.
+A procedure rule's body is evaluated with the values of its arguments,
+which are evaluated first."
+  (setq grammar (or grammar (phony-grammar)))
   (if (atom ast)
       ast
     (let* ((type (car ast))
            (arguments (cdr ast))
-           (rule (phony--get-rule type phony--exported-grammar)))
+           (rule (phony--get-rule type grammar)))
       (cond
        ((eq type 'list)
-        (seq-map #'phony--evaluate-ast
+        (seq-map (lambda (argument) (phony-evaluate-ast argument grammar))
                  arguments))
        ((phony--dictionary-p rule)
-        (phony-dictionary-get (car arguments) type))
+        (phony--dictionary-elt rule (car arguments)))
        ((phony--procedure-rule-p rule)
         (apply (phony--procedure-rule-function rule)
-               (seq-map #'phony--evaluate-ast
+               (seq-map (lambda (argument) (phony-evaluate-ast argument grammar))
                         arguments)))
        ((phony--open-rule-p rule)
-        (phony--evaluate-ast (cadr ast)))
+        (phony-evaluate-ast (cadr ast) grammar))
        (t (error "Failed to evaluate AST: %S" ast))))))
+
+(defun phony--utterance-words (utterance)
+  "Return the words of UTTERANCE, a string or a list of words."
+  (if (stringp utterance)
+      (string-split utterance)
+    utterance))
+
+(defun phony-parse (utterance &optional grammar)
+  "Return every parse of UTTERANCE as a sequence of commands of GRAMMAR.
+
+UTTERANCE is a string, which is split into words at whitespace, or a
+list of words.  GRAMMAR defaults to the one `phony-grammar' returns.
+
+As in `phony-evaluate', the commands are interactive procedure rules,
+said one after another.  Each parse is a list of ASTs, one for each
+command, to be evaluated with `phony-evaluate-ast'.  The AST of a
+procedure rule is a list (NAME . ARGUMENTS), where NAME is the name of
+the rule and ARGUMENTS are the ASTs of the values of its arguments.
+
+The parses are ordered by the number of words parsed as free text,
+fewest first.  If UTTERANCE can't be parsed, the value is nil.
+
+Words are compared with literals after normalization, see
+`phony-literal-normalizer'."
+  (phony-parser--parse-utterance (phony--utterance-words utterance)
+                                 (or grammar (phony-grammar))))
+
+(defun phony-parse-rule (rule utterance &optional grammar)
+  "Return every parse of UTTERANCE as RULE of GRAMMAR.
+
+RULE is the name of any rule, interactive or not.  UTTERANCE and GRAMMAR
+are as for `phony-parse'.  Each parse is the AST of RULE, to be
+evaluated with `phony-evaluate-ast'.  The parses are ordered by the
+number of words parsed as free text, fewest first."
+  (setq grammar (or grammar (phony-grammar)))
+  (mapcar #'car (phony-parser--parse-rule
+                 (phony--ensure-rule rule grammar)
+                 (phony--utterance-words utterance))))
+
+(defun phony-parse-spans (utterance &optional grammar)
+  "Return every parse of each span of UTTERANCE as one command of GRAMMAR.
+
+UTTERANCE and GRAMMAR are as for `phony-parse'.  Unlike `phony-parse',
+this doesn't enumerate the parses of the whole utterance, whose number
+can grow quickly with its length.  Instead it returns, for each word,
+the commands that can start there, from which the parses of the
+utterance can be put together.
+
+The value is a vector with one element for each word of UTTERANCE.
+The element for the word at index START is a list of entries
+\(END AST COST), one for each parse of the words from START up to, but
+not including, END as one command.  AST is as for `phony-parse', and
+COST is the number of words parsed as free text.  Commands anchored to
+the beginning or end of an utterance are only included where they
+start at the first word or end at the last word."
+  (phony-parser--parse-spans (phony--utterance-words utterance)
+                             (or grammar (phony-grammar))))
+
+(defun phony--ensure-rule (name grammar)
+  "Return the rule named NAME in GRAMMAR.
+
+If there is no such rule, an error is signalled."
+  (or (phony--get-rule name grammar)
+      (error "No rule named `%s'" name)))
 
 (defun phony-evaluate (utterance &optional default)
   "Evaluate UTTERANCE against the current grammar.
@@ -1693,7 +1761,8 @@ If you're controlling this interactively through voice, you should
 probably use `phony-evaluate-as-event' instead."
   (let ((parses (phony-parser--parse-utterance utterance)))
     (if parses
-        (mapcar #'phony--evaluate-ast (car parses))
+        (mapcar (lambda (ast) (phony-evaluate-ast ast phony--exported-grammar))
+                (car parses))
       default)))
 
 (defun phony-evaluate-as-event (utterance)

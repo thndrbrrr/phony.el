@@ -320,7 +320,13 @@ transcribed text, can be parsed and evaluated by your own code, without
 ~phony-mode~:
 
 - ~phony-grammar~ returns the grammar of the rules defined so far.  It
-  is prepared again whenever a rule changes.
+  is prepared again whenever a rule changes.  The functions below use
+  it unless they are given another grammar.
+- ~phony-parse~ returns every parse of an utterance as a sequence of
+  commands, ~phony-parse-rule~ every parse as a given rule, and
+  ~phony-parse-spans~ every parse of each part of an utterance as one
+  command.  A parse is an abstract syntax tree, which
+  ~phony-evaluate-ast~ evaluates.
 
 * Experimental features
 :PROPERTIES:
