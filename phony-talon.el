@@ -274,6 +274,11 @@ symlinks them into ~/.talon/user/."
              (not (server-running-p))
              (y-or-n-p "Emacs needs to run as a daemon for phony to work with Talon.  Start daemon?"))
     (server-start))
+  (when-let* ((cycle (phony--recursive-rules-cycle grammar)))
+    (display-warning
+     'phony
+     (format "Talon may not support rules that refer to themselves: %s"
+             (phony--format-cycle cycle))))
   (phony-talon--generate-configuration grammar)
   (let ((link-path (expand-file-name "~/.talon/user/phony-generated-rules")))
     (if (or (not (file-exists-p link-path))

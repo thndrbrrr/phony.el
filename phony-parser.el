@@ -301,6 +301,17 @@ PARSER-FACTORY is invoked with no arguments to yield the parser to use."
            (setq generation current-generation)))
        parser))))
 
+(defun phony-parser--delay (parser-factory)
+  "Return a parser behaving like the one made by PARSER-FACTORY.
+
+PARSER-FACTORY is invoked with no arguments the first time the returned
+parser is used, and its value is kept.  This allows parsers to refer
+to themselves."
+  (let ((parser nil))
+    (phony-parser--runtime-resolved
+     (lambda ()
+       (or parser (setq parser (funcall parser-factory)))))))
+
 (defun phony-parser--rule-active-guard (rule)
   "Return a parser that succeeds if RULE is currently active."
   (phony-parser--guard (lambda () (phony--rule-active-p rule))))
@@ -530,9 +541,14 @@ corresponding match."
   (phony-parser--parser (phony-pattern--argument-pattern argument)))
 
 (cl-defmethod phony-parser--parser ((rule phony-pattern--rule))
-  "Return a parser matching the rule named by RULE."
-  (phony-parser--parser
-   (phony--resolved (phony-pattern--rule-reference rule))))
+  "Return a parser matching the rule named by RULE.
+
+The parser of the rule is built when it is first used, so that rules
+can refer to themselves."
+  (let ((reference (phony-pattern--rule-reference rule)))
+    (phony-parser--delay
+     (lambda ()
+       (phony-parser--parser (phony--resolved reference))))))
 
 (cl-defmethod phony-parser--parser ((_ phony-pattern--builtin-word))
   "Return parser accepting an arbitrary word."

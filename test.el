@@ -812,14 +812,53 @@ If there is no parse, an error is thrown."
     (should (= (phony-test--evaluate "double five") 10))
     (should-error (phony-test--evaluate "double three"))))
 
-(ert-deftest phony-cyclic-dependency-diagnostic ()
-  "Cyclic dependencies generate diagnostics."
+(ert-deftest phony-left-recursion-diagnostic ()
+  "Rules referring to themselves before matching a word generate diagnostics."
   (phony-test
     (phony-defun some-word ((word another-word))
       word)
     (phony-defun another-word ((word some-word))
       word)
-    (phony-test-should-have-diagnostics phony--dependency-cycle)))
+    (phony-test-should-have-diagnostics phony--left-recursion)))
+
+(ert-deftest phony-left-recursion-diagnostic-through-optional ()
+  "Left recursion after patterns that can match nothing is diagnosed."
+  (phony-test
+    (phony-define-open-rule things)
+    (phony-defun more-things ((? "maybe") (* "many") things "end")
+      :contributes-to things
+      things)
+    (phony-test-should-have-diagnostics phony--left-recursion)))
+
+(ert-deftest phony-recursive-rule ()
+  "A rule can refer to itself after matching a word."
+  (phony-test
+    (phony-defun nesting ((| (seq "open" (inner nesting) "close")
+                             (leaf "leaf")))
+      (if leaf 0 (1+ inner)))
+    (phony-test-should-have-diagnostics)
+    (phony--export-all)
+    (should (= (phony-test--evaluate "leaf") 0))
+    (should (= (phony-test--evaluate "open open leaf close close") 2))
+    (should-error (phony-test--evaluate "open leaf close close"))))
+
+(ert-deftest phony-mutually-recursive-rules ()
+  "Rules can refer to each other, also through open rules."
+  (phony-test
+    (phony-define-open-rule expression)
+    (phony-defun small-number ((n (| "one" "two")))
+      :contributes-to expression
+      (if (equal n "one") 1 2))
+    (phony-defun sum ("sum of" (a expression) "and" (b expression))
+      :contributes-to expression
+      (+ a b))
+    (phony-defun compute ("compute" expression)
+      expression)
+    (phony-test-should-have-diagnostics)
+    (phony--export-all)
+    (should (= (phony-test--evaluate "compute two") 2))
+    (should (= (phony-test--evaluate "compute sum of one and sum of two and two")
+               5))))
 
 (ert-deftest phony-builtin-word ()
   "Word builtins parse."

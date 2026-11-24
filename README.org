@@ -119,6 +119,20 @@ line.
     (goto-char (car bounds)))
 #+end_src
 
+Rules can refer to themselves, directly or through other rules, as
+long as they match a word first.  The following rule matches "leaf",
+"open leaf close", "open open leaf close close" and so on, and returns
+how deeply the leaf is nested:
+
+#+begin_src elisp
+  (phony-defun nesting ((| (seq "open" (inner nesting) "close")
+                           (leaf "leaf")))
+    (if leaf 0 (1+ inner)))
+#+end_src
+
+A rule that could refer to itself before matching a word, as in
+~(phony-defun list (list "and" item) ...)~, is an error.
+
 For more documentation on procedure rules, see the function
 documentation of ~phony-defun~.
 

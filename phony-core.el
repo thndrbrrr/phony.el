@@ -419,6 +419,10 @@ interpreted as the rule being part of the user's personal configuration."
               "Cycle in dependencies"
               'phony--grammar-error)
 
+(define-error 'phony--left-recursion
+              "Left recursion"
+              'phony--dependency-cycle)
+
 (define-error 'phony--interface-cycle
               "Cycle in interfaces"
               'phony--dependency-cycle)
@@ -625,7 +629,7 @@ This returns the immediate resolution, not the transitive one."
           ;; TODO: Move cycle detection to diagnostics function above
           (phony--detect-interface-cycles grammar)
           (phony--detect-non-open-contributions grammar)
-          (phony--detect-dependency-cycle grammar))
+          (phony--detect-left-recursion grammar))
       (phony--grammar-error
        (list (phony--make-diagnostic
               ;; Emacs 31: error-type
@@ -1019,54 +1023,159 @@ given by SUCCESSOR-FUNCTION."
   (gethash rule (phony--get-producers-table
                  (phony--containing-grammar rule))))
 
-(defun phony--find-dependency-cycle-impl (rule visited finished)
-  "Ensure grammar rule dependencies forms a DAG.
+(defun phony--find-cycle-impl (rule successors visited finished)
+  "Return a cycle reachable from RULE, or nil if there is none.
 
-If a cycle is detected it is returned without visiting any more rules.
-Otherwise, this function returns nil.
+SUCCESSORS is a function taking a rule and returning the rules it
+depends on.  The cycle is a list of rules, starting and ending with the
+same rule.
 
-RULE is the currently visited rule.  VISITED is a hash table of the
-already visited rules.  FINISHED is a hash table of rules that have been
-fully processed.  This function adds RULE to VISITED before recusing to
-its children, and to FINISHED afterwards."
-  (let ((dependencies (phony--products rule)))
-    (cl-block nil
-      (when (gethash rule finished)
-        (cl-return nil))
-      (when (gethash rule visited)
-        (cl-return (list rule)))
+VISITED is a hash table of the already visited rules.  FINISHED is a
+hash table of rules that have been fully processed.  This function adds
+RULE to VISITED before recursing to its successors, and to FINISHED
+afterwards."
+  (cl-block nil
+    (when (gethash rule finished)
+      (cl-return nil))
+    (when (gethash rule visited)
+      (cl-return (list rule)))
 
-      (puthash rule t visited)
-      (seq-doseq (dependency dependencies)
-        (when-let* ((path (phony--find-dependency-cycle-impl
-                           dependency visited finished)))
-          (if (and (not (length= path 1))
-                   (eq (seq-first path) (car (last path))))
-              (cl-return path)
-            (cl-return (cons rule path)))))
+    (puthash rule t visited)
+    (seq-doseq (successor (funcall successors rule))
+      (when-let* ((path (phony--find-cycle-impl
+                         successor successors visited finished)))
+        (if (and (not (length= path 1))
+                 (eq (seq-first path) (car (last path))))
+            (cl-return path)
+          (cl-return (cons rule path)))))
 
-      (puthash rule t finished)
-      (cl-return nil))))
+    (puthash rule t finished)
+    (cl-return nil)))
 
-(cl-defun phony--detect-dependency-cycle (grammar)
-  "Signal if there is a dependency cycle in GRAMMAR.
+(defun phony--find-cycle (rules successors)
+  "Return a cycle among RULES, or nil if there is none.
 
-The error signalled is `phony--dependency-cycle'."
-  (let ((visited (make-hash-table))
-        (finished (make-hash-table)))
-    (seq-doseq (rule (phony--get-rules grammar))
-      (when-let* ((cycle (phony--find-dependency-cycle-impl rule visited finished)))
-        ;; TODO: Only diagnose if reachable (eventually categorize
-        ;; severity by reachability instead)
-        (signal
-         'phony--dependency-cycle
-         (list
-          (concat "Cycle found: "
-                  (string-join
-                   (seq-map #'symbol-name
-                            (seq-map #'phony--rule-name cycle))
-                   " -> "))))))
-    nil))
+SUCCESSORS is a function taking a rule and returning the rules it
+depends on.  The cycle is a list of rules, starting and ending with the
+same rule."
+  (let ((visited (make-hash-table :test 'eq))
+        (finished (make-hash-table :test 'eq)))
+    (seq-some (lambda (rule)
+                (phony--find-cycle-impl rule successors visited finished))
+              rules)))
+
+(defun phony--format-cycle (cycle)
+  "Return CYCLE, a list of rules, as a string."
+  (mapconcat (lambda (rule) (symbol-name (phony--rule-name rule)))
+             cycle " -> "))
+
+(defun phony--pattern-nullable-p (pattern nullable)
+  "Return non-nil if PATTERN can match without consuming a word.
+
+NULLABLE is a hash table containing the rules known to match without
+consuming a word."
+  (pcase pattern
+    ((cl-struct phony-pattern--literal string)
+     (null (string-split string)))
+    ((cl-struct phony-pattern--rule reference)
+     (and-let* ((rule (phony--resolved reference)))
+       (gethash rule nullable)))
+    ((cl-struct phony-pattern--sequence patterns)
+     (seq-every-p (lambda (child) (phony--pattern-nullable-p child nullable))
+                  patterns))
+    ((cl-struct phony-pattern--alternative patterns)
+     (seq-some (lambda (child) (phony--pattern-nullable-p child nullable))
+               patterns))
+    ((or (cl-struct phony-pattern--optional)
+         (cl-struct phony-pattern--zero-or-more))
+     t)
+    ((cl-struct phony-pattern--one-or-more (pattern child))
+     (phony--pattern-nullable-p child nullable))
+    ((cl-struct phony-pattern--argument (pattern child))
+     (phony--pattern-nullable-p child nullable))
+    (_ nil)))
+
+(defun phony--rule-nullable-p (rule nullable)
+  "Return non-nil if RULE can match without consuming a word.
+
+NULLABLE is as for `phony--pattern-nullable-p'."
+  (cl-typecase rule
+    (phony--procedure-rule
+     (phony--pattern-nullable-p (phony--procedure-rule-pattern rule) nullable))
+    (phony--dictionary
+     (seq-some (lambda (entry) (null (string-split (car entry))))
+               (phony--dictionary-mapping rule)))
+    (t
+     (seq-some (lambda (product) (gethash product nullable))
+               (phony--products rule)))))
+
+(defun phony--nullable-rules (grammar)
+  "Return a hash table of the rules of GRAMMAR that can match no words."
+  (let ((nullable (make-hash-table :test 'eq))
+        (changed t))
+    (while changed
+      (setq changed nil)
+      (dolist (rule (phony--get-rules grammar))
+        (when (and (not (gethash rule nullable))
+                   (phony--rule-nullable-p rule nullable))
+          (puthash rule t nullable)
+          (setq changed t))))
+    nullable))
+
+(defun phony--pattern-left-corners (pattern nullable)
+  "Return the rules PATTERN can start with, before consuming a word.
+
+NULLABLE is as for `phony--pattern-nullable-p'."
+  (pcase pattern
+    ((cl-struct phony-pattern--rule reference)
+     (ensure-list (phony--resolved reference)))
+    ((cl-struct phony-pattern--sequence patterns)
+     (let ((corners '()))
+       (while patterns
+         (let ((child (pop patterns)))
+           (setq corners (append corners
+                                 (phony--pattern-left-corners child nullable)))
+           (unless (phony--pattern-nullable-p child nullable)
+             (setq patterns nil))))
+       corners))
+    ((cl-struct phony-pattern--alternative patterns)
+     (seq-mapcat (lambda (child) (phony--pattern-left-corners child nullable))
+                 patterns))
+    ((or (cl-struct phony-pattern--optional (pattern child))
+         (cl-struct phony-pattern--repeat (pattern child))
+         (cl-struct phony-pattern--argument (pattern child)))
+     (phony--pattern-left-corners child nullable))
+    (_ '())))
+
+(defun phony--detect-left-recursion (grammar)
+  "Signal if a rule of GRAMMAR can refer to itself before consuming a word.
+
+Rules can refer to themselves, directly or through other rules, but
+only after a word has been matched.  Otherwise parsing would never end.
+
+The error signalled is `phony--left-recursion'."
+  (let ((nullable (phony--nullable-rules grammar)))
+    (when-let* ((cycle
+                 (phony--find-cycle
+                  (phony--get-rules grammar)
+                  (lambda (rule)
+                    (if (phony--procedure-rule-p rule)
+                        (phony--pattern-left-corners
+                         (phony--procedure-rule-pattern rule) nullable)
+                      (phony--products rule))))))
+      (signal
+       'phony--left-recursion
+       (list
+        (concat "Rule refers to itself before matching a word: "
+                (phony--format-cycle cycle)))))))
+
+(defun phony--recursive-rules-cycle (grammar)
+  "Return a cycle of reachable rules of GRAMMAR referring to themselves.
+
+Return nil if no reachable rule refers to itself."
+  (phony--find-cycle
+   (seq-filter #'phony--rule-reachable-p (phony--get-rules grammar))
+   #'phony--products))
 
 (defcustom phony-export-function #'ignore
   "Function to be used for exporting spoken rules."
@@ -1284,6 +1393,9 @@ of the corresponding pattern:
 Bindings done inside of patterns are also transformed when needed: + and
 * turn all internal bindings into lists, and ? turn them into nil if the
 pattern is not matched.
+
+PATTERN can refer to the rule being defined, directly or through other
+rules, as long as a word is matched before it does so.
 
 Optional argument DOCSTRING is a documentation string for the rule.
 
