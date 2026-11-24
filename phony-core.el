@@ -1569,7 +1569,7 @@ Optional keywords common to all rule types are:
          (expanded-pattern
           (phony--expand-implicit-arguments
            (cons 'seq (ensure-list pattern))))
-         (arguments (phony--collect-arguments expanded-pattern))
+         (arguments (phony-pattern-arguments pattern))
          (unused-arguments
           (seq-remove (lambda (argument)
                         (or (string-prefix-p "_" (symbol-name argument))
@@ -1628,7 +1628,21 @@ pattern tree."
       (seq-mapcat #'phony--collect-arguments (cdr pattern-form)))
      ((listp pattern-form)
       (list (car pattern-form)))
-     (t '()))))
+     (t '())))
+
+  (defun phony-pattern-arguments (pattern)
+    "Return the names of the arguments PATTERN binds.
+
+PATTERN is the pattern of a rule, as given to `phony-defun'.  The
+arguments are those of the rule's body, in order: the ones bound
+explicitly, as in (ARG PAT), and the rules referred to by name, which
+bind an argument of the same name.
+
+This is for macros that define rules with `phony-defun' and need the
+arguments of the rule's body, so it is also available at compile
+time."
+    (phony--collect-arguments
+     (phony--expand-implicit-arguments (cons 'seq (ensure-list pattern))))))
 
 (phony-define-dictionary phony-module
   "Dictionary of defined modules.

@@ -1238,4 +1238,12 @@ If there is no parse, an error is thrown."
     (should (equal (phony-parse-spans "hello there")
                    [((2 (greet) 0)) ((2 (greet) 0))]))))
 
+(ert-deftest phony-pattern-arguments ()
+  "`phony-pattern-arguments' gives the arguments as `phony-defun' does."
+  (should (equal (phony-pattern-arguments "hello") '()))
+  (should (equal (phony-pattern-arguments '("go" (? (count number)) (| left right)))
+                 '(count left right)))
+  (should (equal (phony-pattern-arguments '((words (+ word)) (_ignored "x")))
+                 '(words _ignored))))
+
 ;;; test.el ends here

@@ -14,6 +14,8 @@
 - New functions ~phony-parse~, ~phony-parse-rule~ and
   ~phony-parse-spans~ for parsing utterances without evaluating them,
   and ~phony-evaluate-ast~ for evaluating the parses.
+- New function ~phony-pattern-arguments~, which returns the arguments
+  a pattern binds, for macros that define rules with ~phony-defun~.
 
 * 4.0.0 [2026-11-23 Mon]
 - The ~:interactive~ parameter of ~phony-defun~ can now take a mode or

@@ -327,6 +327,8 @@ transcribed text, can be parsed and evaluated by your own code, without
   ~phony-parse-spans~ every parse of each part of an utterance as one
   command.  A parse is an abstract syntax tree, which
   ~phony-evaluate-ast~ evaluates.
+- ~phony-pattern-arguments~ returns the arguments of a pattern, for
+  macros that define rules with ~phony-defun~.
 
 * Experimental features
 :PROPERTIES:
