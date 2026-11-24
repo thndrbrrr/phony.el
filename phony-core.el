@@ -1755,6 +1755,74 @@ If there is no such rule, an error is signalled."
   (or (phony--get-rule name grammar)
       (error "No rule named `%s'" name)))
 
+(defun phony--ensure-procedure-rule (name grammar)
+  "Return the procedure rule named NAME in GRAMMAR.
+
+If there is no such rule, an error is signalled."
+  (let ((rule (phony--ensure-rule name grammar)))
+    (unless (phony--procedure-rule-p rule)
+      (error "Rule `%s' is not a procedure rule" name))
+    rule))
+
+(defun phony-interactive-rules (&optional grammar)
+  "Return the names of the rules of GRAMMAR that can be said as commands.
+
+These are the procedure rules that are interactive and active in the
+current buffer, sorted by name.  GRAMMAR defaults to the one
+`phony-grammar' returns."
+  (thread-last
+    (phony--interactive-rules (or grammar (phony-grammar)))
+    (seq-filter #'phony--rule-active-p)
+    (mapcar (lambda (rule)
+              (if (phony--rule-generated-p rule)
+                  (car (phony--products rule))
+                rule)))
+    (seq-filter #'phony--rule-active-p)
+    (mapcar #'phony--rule-name)
+    (seq-uniq)
+    (seq-sort #'string<)))
+
+(defun phony-rule-documentation (name &optional grammar)
+  "Return the documentation string of the rule NAME in GRAMMAR, or nil.
+
+GRAMMAR defaults to the one `phony-grammar' returns."
+  (phony--rule-documentation
+   (phony--ensure-rule name (or grammar (phony-grammar)))))
+
+(defun phony-rule-pattern (name &optional grammar)
+  "Return the pattern of the procedure rule NAME in GRAMMAR.
+
+The pattern is a form as written in `phony-defun', a `seq' form of the
+patterns given for the rule.  Arguments are explicit in it, as in
+\(ARG PAT), and optional and repeated patterns have one sub-pattern
+each.  GRAMMAR defaults to the one `phony-grammar' returns."
+  (phony-pattern--unparse
+   (phony--procedure-rule-pattern
+    (phony--ensure-procedure-rule name (or grammar (phony-grammar))))))
+
+(defun phony-rule-function (name &optional grammar)
+  "Return the function of the procedure rule NAME in GRAMMAR.
+
+The function evaluates the body of the rule.  It takes the values of
+the rule's arguments, in the order `phony-pattern-arguments' gives
+them.  GRAMMAR defaults to the one `phony-grammar' returns."
+  (phony--procedure-rule-function
+   (phony--ensure-procedure-rule name (or grammar (phony-grammar)))))
+
+(defun phony-interface-provider (name &optional grammar)
+  "Return the name of the rule providing the interface NAME in GRAMMAR.
+
+If the provider is itself an interface, its provider is returned, and
+so on.  Return nil if the interface has no provider.  GRAMMAR defaults
+to the one `phony-grammar' returns.  See `phony-define-interface' for
+how providers are chosen."
+  (let ((rule (phony--ensure-rule name (or grammar (phony-grammar)))))
+    (unless (phony--interface-rule-p rule)
+      (error "Rule `%s' is not an interface" name))
+    (while (phony--interface-rule-p rule)
+      (setq rule (phony--interface-resolved-provider rule)))
+    (and rule (phony--rule-name rule))))
+
 (defun phony-evaluate (utterance &optional default)
   "Evaluate UTTERANCE against the current grammar.
 

@@ -327,6 +327,10 @@ transcribed text, can be parsed and evaluated by your own code, without
   ~phony-parse-spans~ every parse of each part of an utterance as one
   command.  A parse is an abstract syntax tree, which
   ~phony-evaluate-ast~ evaluates.
+- ~phony-interactive-rules~, ~phony-rule-documentation~,
+  ~phony-rule-pattern~, ~phony-rule-function~ and
+  ~phony-interface-provider~ describe the rules of a grammar, for
+  example for showing what can be said.
 - ~phony-pattern-arguments~ returns the arguments of a pattern, for
   macros that define rules with ~phony-defun~.
 

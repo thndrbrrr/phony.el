@@ -258,5 +258,35 @@ returned in the same order that they occur in PATTERN."
         (cons pattern collected-children)
       collected-children)))
 
+(defun phony-pattern--unparse (pattern)
+  "Return PATTERN as a pattern form, as written in `phony-defun'.
+
+Arguments are explicit in the form, and optional and repeated
+patterns have one sub-pattern each."
+  (pcase pattern
+    ((cl-struct phony-pattern--literal string)
+     string)
+    ((cl-struct phony-pattern--rule)
+     (phony-pattern--rule-name pattern))
+    ((cl-struct phony-pattern--builtin-word)
+     'phony--builtin-word)
+    ((cl-struct phony-pattern--builtin-phrase)
+     'phony--builtin-phrase)
+    ((cl-struct phony-pattern--argument name (pattern child))
+     `(,name ,(phony-pattern--unparse child)))
+    ((cl-struct phony-pattern--sequence patterns)
+     `(seq ,@(mapcar #'phony-pattern--unparse patterns)))
+    ((cl-struct phony-pattern--alternative patterns)
+     `(| ,@(mapcar #'phony-pattern--unparse patterns)))
+    ((cl-struct phony-pattern--optional (pattern child))
+     `(\? ,(phony-pattern--unparse child)))
+    ((cl-struct phony-pattern--one-or-more (pattern child))
+     `(+ ,(phony-pattern--unparse child)))
+    ((cl-struct phony-pattern--zero-or-more (pattern child))
+     `(* ,(phony-pattern--unparse child)))
+    (_ (error "No case for pattern of type %s: %s"
+              (type-of pattern)
+              pattern))))
+
 (provide 'phony-pattern)
 ;;; phony-pattern.el ends here

@@ -1238,6 +1238,59 @@ If there is no parse, an error is thrown."
     (should (equal (phony-parse-spans "hello there")
                    [((2 (greet) 0)) ((2 (greet) 0))]))))
 
+(ert-deftest phony-interactive-rules ()
+  "`phony-interactive-rules' lists the rules that can be said now."
+  (phony-test
+    (phony-defun always "always"
+      t)
+    (phony-defun in-text "in text"
+      :interactive text-mode
+      t)
+    (phony-defun only-in-text "only in text"
+      :mode text-mode
+      t)
+    (phony-defun part "part"
+      :interactive nil
+      t)
+    (with-temp-buffer
+      (should (equal (phony-interactive-rules) '(always)))
+      (text-mode)
+      (should (equal (phony-interactive-rules) '(always in-text only-in-text))))))
+
+(ert-deftest phony-rule-introspection ()
+  "Rules can be inspected through the public accessors."
+  (phony-test
+    (phony-define-dictionary colors
+      "Some colors."
+      '(("red" . red)))
+    (phony-defun paint ("paint" (? "it") (how (| "dark" "light")) colors (+ "please"))
+      "Paint it in COLORS.
+More text."
+      (list how colors))
+    (should (equal (phony-rule-documentation 'paint) "Paint it in COLORS.\nMore text."))
+    (should (equal (phony-rule-documentation 'colors) "Some colors."))
+    (should (equal (phony-rule-pattern 'paint)
+                   '(seq "paint" (\? "it") (how (| "dark" "light")) (colors colors)
+                         (+ "please"))))
+    (should (equal (funcall (phony-rule-function 'paint) "dark" 'red)
+                   '("dark" red)))
+    (should-error (phony-rule-pattern 'colors))
+    (should-error (phony-rule-documentation 'undefined))))
+
+(ert-deftest phony-interface-provider ()
+  "`phony-interface-provider' resolves interfaces."
+  (phony-test
+    (phony-define-interface outer)
+    (phony-define-interface inner
+      :provides outer)
+    (phony-defun provider "provide"
+      :provides inner
+      t)
+    (phony-define-interface unprovided)
+    (should (eq (phony-interface-provider 'outer) 'provider))
+    (should (eq (phony-interface-provider 'inner) 'provider))
+    (should-error (phony-interface-provider 'provider))))
+
 (ert-deftest phony-pattern-arguments ()
   "`phony-pattern-arguments' gives the arguments as `phony-defun' does."
   (should (equal (phony-pattern-arguments "hello") '()))

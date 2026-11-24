@@ -16,6 +16,9 @@
   and ~phony-evaluate-ast~ for evaluating the parses.
 - New function ~phony-pattern-arguments~, which returns the arguments
   a pattern binds, for macros that define rules with ~phony-defun~.
+- New functions ~phony-interactive-rules~, ~phony-rule-documentation~,
+  ~phony-rule-pattern~, ~phony-rule-function~ and
+  ~phony-interface-provider~ for inspecting rules.
 
 * 4.0.0 [2026-11-23 Mon]
 - The ~:interactive~ parameter of ~phony-defun~ can now take a mode or
